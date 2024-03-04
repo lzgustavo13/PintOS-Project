@@ -68,7 +68,8 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      //list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered(&sema->waiters,&thread_current()->elem, CompPR , NULL);
       thread_block ();
     }
   sema->value--;
@@ -111,13 +112,29 @@ sema_up (struct semaphore *sema)
   enum intr_level old_level;
 
   ASSERT (sema != NULL);
-
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+
+  struct thread *t = NULL;
+  if (!list_empty (&sema->waiters)){
+    //thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+    list_sort(&sema->waiters, CompPR , NULL);
+    t = list_entry(list_pop_back(&sema->waiters),struct thread, elem);
+    thread_unblock(t);
+  }
   sema->value++;
   intr_set_level (old_level);
+
+  old_level = intr_disable();
+
+  if (t!= NULL)
+  {
+    if (thread_current()->priority < t->priority){
+      if(!intr_context()){
+        thread_yield();
+      }
+    }
+  }
+  intr_set_level(old_level);
 }
 
 static void sema_test_helper (void *sema_);
@@ -196,8 +213,16 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  enum intr_level old_level;
+
+  old_level = intr_disable();
   sema_down (&lock->semaphore);
+  thread_current()->wait_lock = NULL;
+
   lock->holder = thread_current ();
+
+  intr_set_level(old_level);
+
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -228,11 +253,19 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
+
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level;
+  old_level = intr_disable();
+
   lock->holder = NULL;
+
   sema_up (&lock->semaphore);
+
+  intr_set_level(old_level);
+  
 }
 
 /* Returns true if the current thread holds LOCK, false

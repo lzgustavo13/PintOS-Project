@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -89,7 +90,10 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-
+    int64_t despertador;                     
+    int nice;
+    int recent_cpu;
+    struct lock *wait_lock;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -137,5 +141,19 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+//Funções implementadas 
+void Dormir(int64_t ticks);
+void Acordar(int64_t ticks);
+bool CompPR (struct list_elem *el1, struct list_elem *el2, void *aux UNUSED);
+void TestePR (void);
+
+int calPRmfq (struct thread *el1);
+void calrecent_cpu (struct thread *el1);
+void calload_avg (void);
+void increcent_cpu (void);
+void recalrecent_cpu (void);
+void recalPR (void);
+void check_thread_yield (void);
 
 #endif /* threads/thread.h */
