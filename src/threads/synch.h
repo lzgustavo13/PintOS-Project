@@ -2,7 +2,7 @@
 #define THREADS_SYNCH_H
 
 #include <list.h>
-
+#include <stdbool.h>
 
 /* A counting semaphore. */
 struct semaphore 
@@ -40,6 +40,9 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+
+//Funções implementadas
+bool CompPRSEM (const struct list_elem *el1, const struct list_elem *el2, void *aux);
 
 /* Optimization barrier.
 

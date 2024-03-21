@@ -112,29 +112,16 @@ sema_up (struct semaphore *sema)
   enum intr_level old_level;
 
   ASSERT (sema != NULL);
-  old_level = intr_disable ();
 
-  struct thread *t = NULL;
+  old_level = intr_disable ();
   if (!list_empty (&sema->waiters)){
-    //thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
     list_sort(&sema->waiters, CompPR , NULL);
-    t = list_entry(list_pop_back(&sema->waiters),struct thread, elem);
-    thread_unblock(t);
+    thread_unblock (list_entry (list_pop_front (&sema->waiters),
+                                struct thread, elem));
   }
   sema->value++;
+  TestePR ();
   intr_set_level (old_level);
-
-  old_level = intr_disable();
-
-  if (t!= NULL)
-  {
-    if (thread_current()->priority < t->priority){
-      if(!intr_context()){
-        thread_yield();
-      }
-    }
-  }
-  intr_set_level(old_level);
 }
 
 static void sema_test_helper (void *sema_);
@@ -209,20 +196,29 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
+  
+  if (thread_mlfqs) { 
+    sema_down (&lock->semaphore);
+    lock->holder = thread_current ();
+    return ;
+  }
+  
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  enum intr_level old_level;
+  //Está função permite que a thread que está esperando por um bloqueio doe sua prioridade para a thread que está mantendo esse bloqueio
+  struct thread *cur = thread_current ();
+  if (lock->holder) { 
+    cur->EspBloq = lock; 
+    list_insert_ordered (&lock->holder->doacoes, &cur->elemdoado, CompPRdo, 0);
+    PRdo ();
+  }
 
-  old_level = intr_disable();
   sema_down (&lock->semaphore);
-  thread_current()->wait_lock = NULL;
-
-  lock->holder = thread_current ();
-
-  intr_set_level(old_level);
-
+  
+  cur->EspBloq = NULL;
+  lock->holder = cur;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -253,19 +249,20 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
-
+  
+  if (thread_mlfqs) {
+    sema_up (&lock->semaphore);
+    return ;
+  }
+  
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  enum intr_level old_level;
-  old_level = intr_disable();
+  RemoveLDo (lock);
+  attPR (); 
 
   lock->holder = NULL;
-
   sema_up (&lock->semaphore);
-
-  intr_set_level(old_level);
-  
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -317,10 +314,30 @@ cond_init (struct condition *cond)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+
+   
+bool CompPRSEM (const struct list_elem *el1, const struct list_elem *el2, void *aux UNUSED) // Comparador de prioridade de semáforos 
+{
+	struct semaphore_elem *el1_sema = list_entry (el1, struct semaphore_elem, elem);
+	struct semaphore_elem *el2_sema = list_entry (el2, struct semaphore_elem, elem);
+
+	struct list *waiter_el1_sema = &(el1_sema->semaphore.waiters);
+	struct list *waiter_el2_sema = &(el2_sema->semaphore.waiters);
+
+  struct thread *temp1 = list_entry (list_begin (waiter_el1_sema), struct thread, elem);
+  struct thread *temp2 = list_entry (list_begin (waiter_el2_sema), struct thread, elem);
+
+  if(temp1->priority > temp2->priority){
+    return 1;
+  }
+  return 0;
+
+}
+
 void
 cond_wait (struct condition *cond, struct lock *lock) 
 {
-  struct semaphore_elem waiter;
+  struct semaphore_elem waiter; //Lista de semáforos
 
   ASSERT (cond != NULL);
   ASSERT (lock != NULL);
@@ -328,7 +345,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  //list_push_back (&cond->waiters, &waiter.elem);
+  list_insert_ordered (&cond->waiters, &waiter.elem, CompPRSEM, 0); //Modificando a função para ordem de prioridade
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -349,9 +367,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
+  if (!list_empty (&cond->waiters)) {
+    list_sort (&cond->waiters, CompPRSEM, 0); // Função para organizar a lista da maior para menor prioridade.
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

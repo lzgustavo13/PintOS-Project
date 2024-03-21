@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include <stdbool.h>
+#define PRI_MAX 63               
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -90,10 +90,19 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-    int64_t despertador;                     
-    int nice;
-    int recent_cpu;
-    struct lock *wait_lock;
+
+    int64_t despertador;                /* Tempo Acordar*/
+
+    int init_priority;                  
+    
+    struct lock *EspBloq;                
+    struct list doacoes;                
+    struct list_elem elemdoado;        
+
+    int nice;                         
+    int recent_cpu;                     
+
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -147,6 +156,8 @@ void Dormir(int64_t ticks);
 void Acordar(int64_t ticks);
 bool CompPR (struct list_elem *el1, struct list_elem *el2, void *aux UNUSED);
 void TestePR (void);
+bool CompPRdo (const struct list_elem *el1, const struct list_elem *el2, void *aux UNUSED);
+
 
 int calPRmfq (struct thread *el1);
 void calrecent_cpu (struct thread *el1);

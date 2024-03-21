@@ -343,10 +343,11 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  if (thread_mlfqs){
+  if (thread_mlfqs){ // MFQ não permite mudança de prioridade
     return;
   }
-  thread_current ()->priority = new_priority;
+  thread_current ()->init_priority = new_priority;
+  attPR ();
   TestePR ();
 }
 
@@ -486,6 +487,11 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+       
+  t->init_priority = priority;
+  t->EspBloq = NULL;     
+  list_init (&t->doacoes); 
+
   t->magic = THREAD_MAGIC;
 
   if(initial_thread){
@@ -498,7 +504,7 @@ init_thread (struct thread *t, const char *name, int priority)
     t->recent_cpu = thread_current()->recent_cpu;
     t->priority = calPRmfq(t);
   }
-  
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -662,6 +668,63 @@ bool CompPR (struct list_elem *el1, struct list_elem *el2, void *aux UNUSED) // 
   return 0;
 }
 
+bool CompPRdo (const struct list_elem *el1, const struct list_elem *el2, void *aux UNUSED) //// função criada para comparar a prioridade da daoção
+{
+  struct thread *temp1 = list_entry (el1, struct thread, elemdoado);
+  struct thread *temp2 = list_entry (el2, struct thread, elemdoado);
+  if(temp1->priority > temp2->priority){
+    return 1;
+  }
+  return 0;
+}
+
+void PRdo (void) //função para a troca da prioridade
+{
+  int profundidade;
+  struct thread *cur = thread_current ();
+
+  for (profundidade = 0; profundidade < 8; profundidade++){
+    if (!cur->EspBloq){
+      break;
+    }
+      struct thread *temp = cur->EspBloq->holder;
+      temp->priority = cur->priority;
+      cur = temp;
+  }
+}
+
+void RemoveLDo (struct lock *lock) //Função para remover as threads da lista de doações
+{
+  struct list_elem *el1;
+  struct thread *cur = thread_current ();
+  el1 = list_begin (&cur->doacoes);
+
+  while(el1 != list_end (&cur->doacoes)){
+    struct thread *el2 = list_entry (el1, struct thread, elemdoado);
+    if (el2->EspBloq == lock){
+      list_remove (&el2->elemdoado);
+    }
+    el1 = list_next (el1);
+  }
+
+}
+
+void attPR (void) // Atualizando a prioridade na doação
+{
+  struct thread *cur = thread_current ();
+
+  cur->priority = cur->init_priority;
+  
+  if (!list_empty (&cur->doacoes)) {
+
+    list_sort (&cur->doacoes, CompPRdo, 0);
+    struct thread *primeiro = list_entry (list_front (&cur->doacoes), struct thread, elemdoado);
+    if (primeiro->priority > cur->priority){
+      cur->priority = primeiro->priority;
+    }
+  }
+}
+
 void TestePR () //teste de prioridade com a thread atual
 {
   if (!list_empty (&ready_list)){
@@ -676,7 +739,7 @@ void TestePR () //teste de prioridade com a thread atual
 int calPRmfq (struct thread *el1){ //Função para calculo de prioridade
 
   int temp = (int)fp_to_int (FLOAT_ADD_MIX (FLOAT_DIV_MIX (el1->recent_cpu, -4), PRI_MAX - (el1->nice * 2)));
-  
+
   if (temp > PRI_MAX){
     temp = PRI_MAX;
   }
